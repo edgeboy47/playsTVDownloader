@@ -2,6 +2,10 @@ const cheerio = require("cheerio"); // Used to parse static HTML
 const got = require("got"); // Used to make network requests to get HTML
 const puppeteer = require("puppeteer"); // Used to parse dynamic HTML
 require("dotenv").config(); // Used to manage environment variables
+const fs = require("fs"); // Used to download videos
+const stream = require("stream"); // Used to download videos
+const { promisify } = require("util"); // Used to downlaod videos
+const pipeline = promisify(stream.pipeline);
 
 function getVideoURL(link) {
   let index = link.indexOf("?");
@@ -18,14 +22,12 @@ async function getVideoFileURLCheerio(link) {
   let videoLink;
   try {
     const response = await got(link);
-
     const $ = cheerio.load(response.body);
     videoLink = $("source[res='720']").prop("src").slice(2);
   } catch (e) {
     console.log(`Link: ${link} produced error: ${e}`);
-  }
-  finally {
-    return videoLink ?`https://${videoLink}` : videoLink;
+  } finally {
+    return videoLink ? `https://${videoLink}` : videoLink;
   }
 }
 
@@ -91,17 +93,32 @@ async function getVideoLinksFromProfile(profileURL) {
   return videoLinks.map(getVideoURL);
 }
 
-async function run() {
-  let allLinks = await getVideoLinksFromProfile(process.env.PROFILE_URL);
+async function videoDownloader(fileURL, fileName) {
+  await pipeline(
+    got.stream(fileURL),
+    fs.createWriteStream(`videos/${fileName}.mp4`)
+  );
+}
 
-  // console.log(allLinks)
+async function run() {
+  console.log(' Creating VIdeos Directory ');
+  fs.mkdir(`${process.cwd()}/videos`, (err) => {
+    if (err.code !== 'EEXIST') throw err;
+  });
+
+  console.log('Scraping profile for videos')
+  let allLinks = await getVideoLinksFromProfile(process.env.PROFILE_URL);
+  console.log(`${allLinks.length} videos were found on the profile`)
 
   let allFileLinks = (
     await Promise.all(allLinks.map(getVideoFileURLCheerio))
-  ).filter(link => link !== undefined);
+  ).filter((link) => link !== undefined);
 
-  console.log(`${allFileLinks.length} of ${allLinks.length} videos were found`);
+  console.log(`${allFileLinks.length} of ${allLinks.length} videos were found archived`);
 
+  console.log('Downloading Videos');
+
+  // await downloader(allFileLinks[0], "tset");
 }
 
 run();
