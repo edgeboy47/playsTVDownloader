@@ -2,11 +2,16 @@ const cheerio = require("cheerio"); // Used to parse static HTML
 const got = require("got"); // Used to make network requests to get HTML
 const puppeteer = require("puppeteer"); // Used to parse dynamic HTML
 require("dotenv").config(); // Used to manage environment variables
+
 const fs = require("fs"); // Used to download videos
 const stream = require("stream"); // Used to download videos
-const { promisify } = require("util"); // Used to downlaod videos
-const pipeline = promisify(stream.pipeline);
+const { promisify } = require("util"); // Used to download videos
+const pipeline = promisify(stream.pipeline); //Used to download videos
+const async = require("async");
 
+let totalDownloads = 0;
+
+// Converts link found in user profile to the video URL
 function getVideoURL(link) {
   let index = link.indexOf("?");
   let url = link.slice(0, index);
@@ -14,10 +19,22 @@ function getVideoURL(link) {
   return url;
 }
 
+// Extracts the name of the video from the video URL
+function getVideoNameFromURL(link) {
+  let regex = /video\/(.+)\/(.+)$/;
+
+  let hash = link.match(regex)[1];
+  let name = link.match(regex)[2];
+
+  return `${name} - ${hash}`;
+}
+
+// Promise based timer
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Gets URL for the video file from the video URL, using Ch
 async function getVideoFileURLCheerio(link) {
   let videoLink;
   try {
@@ -31,6 +48,7 @@ async function getVideoFileURLCheerio(link) {
   }
 }
 
+// Gets all video URLs given the profile URL, and returns them in an array
 async function getVideoLinksFromProfile(profileURL) {
   let start = process.hrtime();
   let numVideos;
@@ -88,37 +106,73 @@ async function getVideoLinksFromProfile(profileURL) {
     hrend[0],
     hrend[1] / 1000000
   );
-  console.log(`Videos: ${videoLinks.map(getVideoURL).length}`);
 
   return videoLinks.map(getVideoURL);
 }
 
-async function videoDownloader(fileURL, fileName) {
-  await pipeline(
-    got.stream(fileURL),
-    fs.createWriteStream(`videos/${fileName}.mp4`)
-  );
+// Downloads the video at fileUrl and saves it as the given fileName
+async function videoDownloader({ name, url }) {
+  try {
+    await pipeline(
+      got.stream(url),
+      fs.createWriteStream(`videos/${name}.mp4`, { flags: "wx" })
+    );
+    totalDownloads++;
+    console.log(`${name} downloaded, ${totalDownloads} total downloads`);
+  } catch (err) {
+    console.log(`Video ${name} gave error: ${err}`);
+  }
 }
 
 async function run() {
-  console.log(' Creating VIdeos Directory ');
+  console.log("Creating Videos Directory");
+
   fs.mkdir(`${process.cwd()}/videos`, (err) => {
-    if (err.code !== 'EEXIST') throw err;
+    if (err && err.code !== "EEXIST") throw err;
   });
 
-  console.log('Scraping profile for videos')
+  console.log("Scraping profile for videos");
+
   let allLinks = await getVideoLinksFromProfile(process.env.PROFILE_URL);
-  console.log(`${allLinks.length} videos were found on the profile`)
+
+  console.log(`${allLinks.length} videos were found on the profile`);
+
+  console.log("Searching for archived videos");
 
   let allFileLinks = (
-    await Promise.all(allLinks.map(getVideoFileURLCheerio))
-  ).filter((link) => link !== undefined);
+    await Promise.all(
+      allLinks.map(async function (link) {
+        return {
+          name: getVideoNameFromURL(link),
+          url: await getVideoFileURLCheerio(link),
+        };
+      })
+    )
+  )
+    .filter((link) => link.url !== undefined)
+    .sort((a, b) => {
+      if (a.name < b.name) return -1;
+      if (a.name > b.name) return 1;
 
-  console.log(`${allFileLinks.length} of ${allLinks.length} videos were found archived`);
+      return 0;
+    });
 
-  console.log('Downloading Videos');
+  console.log(
+    `${allFileLinks.length} of ${allLinks.length} videos were found archived`
+  );
 
-  // await downloader(allFileLinks[0], "tset");
+  console.log("Downloading Videos");
+
+  // await Promise.all(
+  //   allFileLinks.forEach(async function (item) {
+  //     await videoDownloader(item.url, item.name);
+  //     console.log(`${item.name} downloaded`)
+  //   })
+  // );
+
+  await async.eachSeries(allFileLinks, videoDownloader);
+
+  console.log("Done.");
 }
 
 run();
