@@ -161,14 +161,7 @@ async function run() {
     `${allFileLinks.length} of ${allLinks.length} videos were found archived`
   );
 
-  console.log("Downloading Videos");
-
-  // await Promise.all(
-  //   allFileLinks.forEach(async function (item) {
-  //     await videoDownloader(item.url, item.name);
-  //     console.log(`${item.name} downloaded`)
-  //   })
-  // );
+  console.log("Downloading Videos. This may take a while.");
 
   await async.eachSeries(allFileLinks, videoDownloader);
 
